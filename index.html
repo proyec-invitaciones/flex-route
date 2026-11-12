@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FlexRoute Optimizer - Optimizador de Rutas Amazon Flex</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    colors: {
+                        flex: {
+                            orange: '#FF9900',
+                            blue: '#00A8E1',
+                            dark: '#0F172A',
+                            card: '#1E293B',
+                            border: '#334155'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Leaflet CSS & JS (Mapas gratuitos) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Tesseract.js (OCR para leer capturas de pantalla) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+    <style>
+        /* Estilos personalizados para el mapa y marcadores */
+        #map {
+            height: 360px;
+            width: 100%;
+            z-index: 10;
+        }
+        @media (min-width: 1024px) {
+            #map {
+                height: calc(100vh - 140px);
+                min-height: 500px;
+            }
+        }
+        
+        /* Marcadores numerados personalizados en Leaflet */
+        .custom-div-icon {
+            background: transparent;
+            border: none;
+        }
+        .marker-pin {
+            width: 32px;
+            height: 32px;
+            border-radius: 50% 50% 50% 0;
+            background: #FF9900;
+            position: absolute;
+            transform: rotate(-45deg);
+            left: 50%;
+            top: 50%;
+            margin: -16px 0 0 -16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            border: 2px solid #ffffff;
+        }
+        .marker-pin.start-pin {
+            background: #10B981; /* Verde para inicio */
+        }
+        .marker-pin.end-pin {
+            background: #EF4444; /* Rojo para destino final */
+        }
+        .marker-pin.delivered-pin {
+            background: #64748B; /* Gris si ya se entregó */
+            opacity: 0.7;
+        }
+        .marker-number {
+            transform: rotate(45deg);
+            color: #0F172A;
+            font-weight: 800;
+            font-size: 13px;
+        }
+        .start-pin .marker-number, .end-pin .marker-number, .delivered-pin .marker-number {
+            color: #ffffff;
+        }
+
+        /* Scrollbar estilizada */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 dark:bg-flex-dark text-slate-900 dark:text-slate-100 font-sans antialiased min-h-screen flex flex-col transition-colors duration-200">
+
+    <!-- Navbar Superior -->
+    <header class="bg-white dark:bg-flex-card border-b border-slate-200 dark:border-flex-border sticky top-0 z-30 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-flex-orange to-amber-600 flex items-center justify-center text-slate-900 font-extrabold text-xl shadow-md">
+                    <i class="fa-solid fa-route"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-lg sm:text-xl tracking-tight leading-none">
+                        FlexRoute <span class="text-flex-orange">Optimizer</span>
+                    </h1>
+                    <p class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Copiloto de Reparto Inteligente</p>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <!-- Botón Cambiar Tema -->
+                <button id="themeToggle" class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Cambiar tema claro/oscuro">
+                    <i class="fa-solid fa-sun hidden dark:inline text-amber-400"></i>
+                    <i class="fa-solid fa-moon inline dark:hidden text-slate-700"></i>
+                </button>
+                <!-- Botón Limpiar Todo -->
+                <button onclick="resetAll()" class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-rose-500 hover:bg-rose-500/10 transition text-sm font-semibold flex items-center gap-1.5" title="Reiniciar ruta">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span class="hidden sm:inline">Limpiar</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Notificación Flotante (Reemplazo seguro de alert) -->
+    <div id="toastContainer" class="fixed bottom-4 right-4 left-4 sm:left-auto sm:w-96 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Contenido Principal -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
+        
+        <!-- COLUMNA IZQUIERDA: Entrada de datos y Lista de Paradas -->
+        <div class="lg:col-span-5 flex flex-col gap-4">
+            
+            <!-- Navegación por Pestañas (Planificar vs Ruta Activa) -->
+            <div class="grid grid-cols-2 p-1 bg-slate-200 dark:bg-slate-800/90 rounded-xl">
+                <button id="tabPlan" onclick="switchTab('plan')" class="py-2.5 px-4 rounded-lg font-bold text-sm transition flex items-center justify-center gap-2 bg-white dark:bg-flex-card text-slate-900 dark:text-white shadow">
+                    <i class="fa-solid fa-list-check text-flex-orange"></i> 1. Cargar Paradas
+                </button>
+                <button id="tabRoute" onclick="switchTab('route')" class="py-2.5 px-4 rounded-lg font-bold text-sm transition flex items-center justify-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+                    <i class="fa-solid fa-truck-fast text-flex-blue"></i> 2. Ruta Optimizada
+                    <span id="badgeCount" class="hidden bg-flex-orange text-slate-900 text-xs font-extrabold px-2 py-0.5 rounded-full">0</span>
+                </button>
+            </div>
+
+            <!-- VISTA 1: PANEL DE PLANIFICACIÓN -->
+            <div id="panelPlan" class="flex flex-col gap-4">
+                
+                <!-- Tarjeta OCR: Escaneo Inteligente -->
+                <div class="bg-white dark:bg-flex-card border border-slate-200 dark:border-flex-border rounded-2xl p-4 shadow-sm">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="font-bold text-sm uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                            <i class="fa-solid fa-camera text-flex-blue"></i> Escaneo Inteligente (OCR)
+                        </h2>
+                        <span class="text-[11px] bg-flex-blue/15 text-flex-blue font-semibold px-2 py-0.5 rounded-md">Capturas de Flex</span>
+                    </div>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                        Sube una o varias capturas de pantalla de tu itinerario en Amazon Flex. Extraeremos las direcciones automáticamente.
+                    </p>
+                    
+                    <label for="ocrInput" class="cursor-pointer border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-flex-orange dark:hover:border-flex-orange rounded-xl p-4 flex flex-col items-center justify-center text-center transition bg-slate-50 dark:bg-slate-800/40">
+                        <i class="fa-solid fa-cloud-arrow-up text-2xl text-flex-orange mb-1.5"></i>
+                        <span class="text-sm font-bold">Seleccionar capturas de pantalla</span>
+                        <span class="text-xs text-slate-400 mt-0.5">Soporta múltiples imágenes (JPG, PNG)</span>
+                        <input type="file" id="ocrInput" accept="image/*" multiple class="hidden" onchange="handleOCRUpload(event)">
+                    </label>
+
+                    <!-- Progreso OCR -->
+                    <div id="ocrProgressBox" class="hidden mt-3 bg-slate-100 dark:bg-slate-800 p-3 rounded-xl">
+                        <div class="flex justify-between text-xs font-semibold mb-1">
+                            <span id="ocrStatusText" class="text-flex-blue">Analizando imagen...</span>
+                            <span id="ocrPercent">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-300 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                            <div id="ocrBar" class="bg-flex-blue h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tarjeta Puntos de Inicio y Fin -->
+                <div class="bg-white dark:bg-flex-card border border-slate-200 dark:border-flex-border rounded-2xl p-4 shadow-sm space-y-3">
+                    <h2 class="font-bold text-sm uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                        <i class="fa-solid fa-location-crosshairs text-emerald-500"></i> Puntos de Control (Opcional)
+                    </h2>
+
+                    <!-- Ubicación de Inicio -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                            Punto de Partida (Estación o GPS actual)
+                        </label>
+                        <div class="flex gap-2">
+                            <input type="text" id="startLocation" placeholder="Ej. Av. Plan de Ayala 501, Cuernavaca" 
+                                class="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-flex-orange">
+                            <button onclick="useCurrentGPS()" id="btnGPS" class="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shrink-0 transition shadow-sm" title="Usar mi ubicación GPS actual">
+                                <i class="fa-solid fa-location-dot"></i> GPS
+                            </button>
+                        </div>
+                        <p id="gpsCoordsLabel" class="text-[11px] text-emerald-500 font-medium mt-1 hidden"></p>
+                    </div>
+
+                    <!-- Destino Final -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                            Destino Final (Para terminar cerca de tu casa)
+                        </label>
+                        <input type="text" id="endLocation" placeholder="Opcional: Dirección de tu casa o última parada" 
+                            class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-flex-orange">
+                    </div>
+                </div>
+
+                <!-- Tarjeta Lista de Direcciones -->
+                <div class="bg-white dark:bg-flex-card border border-slate-200 dark:border-flex-border rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <h2 class="font-bold text-sm uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                            <i class="fa-solid fa-map-pin text-flex-orange"></i> Direcciones de Entrega
+                        </h2>
+                        <button onclick="loadDemoData()" class="text-xs font-bold bg-amber-500/15 text-amber-600 dark:text-flex-orange hover:bg-amber-500/25 px-2.5 py-1.5 rounded-lg transition">
+                            <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Cargar ejemplo (Morelos)
+                        </button>
+                    </div>
+
+                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                        Ingresa o corrige una dirección por línea. Agrega municipio o estado para mayor precisión.
+                    </p>
+
+                    <textarea id="addressList" rows="6" placeholder="Calle Hidalgo 102, Centro, Cuernavaca, Morelos&#10;Av. Río Mayo 405, Vista Hermosa, Cuernavaca&#10;Calle Nueva Inglaterra 12, Lomas de Cortés, Cuernavaca..."
+                        class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm leading-relaxed focus:outline-none focus:border-flex-orange font-mono"></textarea>
+
+                    <!-- Barra de Progreso Geocodificación -->
+                    <div id="geoProgressBox" class="hidden bg-slate-100 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div class="flex justify-between text-xs font-bold mb-1.5">
+                            <span id="geoStatusText" class="text-flex-orange">Ubicando direcciones en el mapa...</span>
+                            <span id="geoCounter">0 / 0</span>
+                        </div>
+                        <div class="w-full bg-slate-300 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                            <div id="geoBar" class="bg-flex-orange h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Botón Principal de Acción -->
+                    <button id="btnOptimize" onclick="startOptimizationProcess()" class="w-full py-3.5 px-5 bg-gradient-to-r from-flex-orange to-amber-500 hover:from-amber-500 hover:to-flex-orange text-slate-900 font-extrabold text-base rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 transition transform active:scale-[0.99]">
+                        <i class="fa-solid fa-bolt"></i> OPTIMIZAR RUTA AHORA
+                    </button>
+                </div>
+
+                <!-- Panel de Direcciones No Encontradas (Aparece solo si hay errores) -->
+                <div id="failedAddressesBox" class="hidden bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4">
+                    <h3 class="text-sm font-bold text-rose-500 flex items-center gap-2 mb-1">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Direcciones no ubicadas automáticamente
+                    </h3>
+                    <p class="text-xs text-slate-600 dark:text-slate-300 mb-3">
+                        OpenStreetMap no encontró estas calles exactas. Edítalas (ej. quita número interior o agrega colonia/municipio) y presiona reintentar:
+                    </p>
+                    <div id="failedListContainer" class="space-y-2"></div>
+                </div>
+            </div>
+
+            <!-- VISTA 2: LISTA DE PARADAS OPTIMIZADAS (MODO COPILOTO) -->
+            <div id="panelRoute" class="hidden flex-col gap-3">
+                
+                <!-- Resumen de Métricas -->
+                <div class="bg-white dark:bg-flex-card border border-slate-200 dark:border-flex-border rounded-2xl p-4 shadow-sm grid grid-cols-3 gap-2 text-center">
+                    <div class="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl">
+                        <span class="block text-[11px] text-slate-400 uppercase font-bold">Paradas</span>
+                        <span id="statStops" class="text-lg font-extrabold text-flex-orange">0</span>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl">
+                        <span class="block text-[11px] text-slate-400 uppercase font-bold">Distancia Est.</span>
+                        <span id="statDistance" class="text-lg font-extrabold text-flex-blue">0 km</span>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl">
+                        <span class="block text-[11px] text-slate-400 uppercase font-bold">Progreso</span>
+                        <span id="statCompleted" class="text-lg font-extrabold text-emerald-500">0/0</span>
+                    </div>
+                </div>
+
+                <!-- Tip de Carga de Vehículo -->
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2.5 text-xs">
+                    <i class="fa-solid fa-box-open text-flex-orange text-base mt-0.5"></i>
+                    <p class="text-slate-700 dark:text-slate-300">
+                        <strong>Tip de acomodo:</strong> Usa el número naranja (<span class="font-bold text-flex-orange">#1, #2, #3...</span>) para marcar tus paquetes con plumón y acomodarlos en orden inverso en tu cajuela.
+                    </p>
+                </div>
+
+                <!-- Contenedor de Tarjetas de Paradas -->
+                <div id="optimizedListContainer" class="space-y-3 pb-10">
+                    <div class="text-center py-10 text-slate-400 text-sm">
+                        Aún no has calculado ninguna ruta. Ve a "Cargar Paradas" para comenzar.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMNA DERECHA: Mapa Interactivo -->
+        <div class="lg:col-span-7 flex flex-col gap-3">
+            <div class="bg-white dark:bg-flex-card border border-slate-200 dark:border-flex-border rounded-2xl p-2 shadow-sm overflow-hidden flex flex-col">
+                <div class="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <h3 class="font-bold text-sm">Mapa de Ruta Secuencial</h3>
+                    </div>
+                    <div class="flex items-center gap-3 text-[11px] font-semibold">
+                        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span> Inicio</span>
+                        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-flex-orange inline-block"></span> Entrega</span>
+                        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-rose-500 inline-block"></span> Fin</span>
+                    </div>
+                </div>
+                
+                <!-- Contenedor Leaflet -->
+                <div id="map" class="rounded-xl mt-2"></div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // ============================================================================
+        // ESTADO GLOBAL DE LA APLICACIÓN
+        // ============================================================================
+        let map = null;
+        let routeLayer = null;
+        let markersLayer = null;
+        let gpsStartCoords = null; // { lat, lon, address }
+        let optimizedStops = [];   // Array ordenado de paradas
+        let startNode = null;      // Nodo inicial opcional
+        let endNode = null;        // Nodo final opcional
+
+        // ============================================================================
+        // INICIALIZACIÓN Y TEMA OSCURO/CLARO
+        // ============================================================================
+        window.onload = function() {
+            initMap();
+            setupThemeToggle();
+            loadSavedState();
+        };
+
+        function setupThemeToggle() {
+            const btn = document.getElementById('themeToggle');
+            btn.addEventListener('click', () => {
+                document.documentElement.classList.toggle('dark');
+                updateMapTiles();
+            });
+        }
+
+        // ============================================================================
+        // CONFIGURACIÓN DEL MAPA (LEAFLET.JS)
+        // ============================================================================
+        let tileLayer = null;
+
+        function initMap() {
+            // Centrado por defecto en Cuernavaca, Morelos / Centro de México
+            map = L.map('map', {
+                zoomControl: true
+            }).setView([18.9242, -99.2216], 12);
+
+            updateMapTiles();
+            markersLayer = L.layerGroup().addTo(map);
+            routeLayer = L.layerGroup().addTo(map);
+        }
+
+        function updateMapTiles() {
+            if (tileLayer) {
+                map.removeLayer(tileLayer);
+            }
+            const isDark = document.documentElement.classList.contains('dark');
+            // CartoDB Dark Matter para modo oscuro de alto contraste, Voyager para modo claro
+            const tileUrl = isDark 
+                ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+
+            tileLayer = L.tileLayer(tileUrl, {
+                attribution: '&copy; OpenStreetMap &copy; CARTO',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        // ============================================================================
+        // SISTEMA DE NOTIFICACIONES (TOASTS EN LUGAR DE ALERT)
+        // ============================================================================
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            
+            const colors = {
+                success: 'bg-emerald-600 text-white border-emerald-400',
+                error: 'bg-rose-600 text-white border-rose-400',
+                warning: 'bg-amber-500 text-slate-950 border-amber-300',
+                info: 'bg-slate-800 text-white border-slate-600'
+            };
+            const icons = {
+                success: 'fa-circle-check',
+                error: 'fa-circle-exclamation',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+
+            toast.className = `${colors[type]} border px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 text-sm font-semibold pointer-events-auto transform transition-all duration-300 translate-y-2 opacity-0`;
+            toast.innerHTML = `
+                <i class="fa-solid ${icons[type]} text-lg shrink-0"></i>
+                <span class="flex-1">${message}</span>
+            `;
+
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // ============================================================================
+        // NAVEGACIÓN ENTRE PESTAÑAS
+        // ============================================================================
+        function switchTab(tab) {
+            const panelPlan = document.getElementById('panelPlan');
+            const panelRoute = document.getElementById('panelRoute');
+            const tabPlan = document.getElementById('tabPlan');
+            const tabRoute = document.getElementById('tabRoute');
+
+            const activeClasses = ['bg-white', 'dark:bg-flex-card', 'text-slate-900', 'dark:text-white', 'shadow'];
+            const inactiveClasses = ['text-slate-600', 'dark:text-slate-400'];
+
+            if (tab === 'plan') {
+                panelPlan.classList.remove('hidden');
+                panelRoute.classList.add('hidden');
+                panelRoute.classList.remove('flex');
+                
+                tabPlan.classList.add(...activeClasses);
+                tabPlan.classList.remove(...inactiveClasses);
+                tabRoute.classList.remove(...activeClasses);
+                tabRoute.classList.add(...inactiveClasses);
+            } else {
+                panelPlan.classList.add('hidden');
+                panelRoute.classList.remove('hidden');
+                panelRoute.classList.add('flex');
+
+                tabRoute.classList.add(...activeClasses);
+                tabRoute.classList.remove(...inactiveClasses);
+                tabPlan.classList.remove(...activeClasses);
+                tabPlan.classList.add(...inactiveClasses);
+                
+                setTimeout(() => map.invalidateSize(), 150);
+            }
+        }
+
+        // ============================================================================
+        // 1. ESCANEO INTELIGENTE (OCR CON TESSERACT.JS)
+        // ============================================================================
+        async function handleOCRUpload(event) {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+
+            const progressBox = document.getElementById('ocrProgressBox');
+            const statusText = document.getElementById('ocrStatusText');
+            const percentText = document.getElementById('ocrPercent');
+            const bar = document.getElementById('ocrBar');
+            const textarea = document.getElementById('addressList');
+
+            progressBox.classList.remove('hidden');
+            let extractedAddresses = [];
+
+            try {
+                // Inicializar worker de Tesseract en Español
+                statusText.textContent = "Cargando motor OCR...";
+                const worker = await Tesseract.createWorker('spa', 1, {
+                    logger: m => {
+                        if (m.status === 'recognizing text') {
+                            const pct = Math.round(m.progress * 100);
+                            percentText.textContent = `${pct}%`;
+                            bar.style.width = `${pct}%`;
+                        }
+                    }
+                });
+
+                for (let i = 0; i < files.length; i++) {
+                    statusText.textContent = `Leyendo captura ${i + 1} de ${files.length}...`;
+                    bar.style.width = '0%';
+                    
+                    const ret = await worker.recognize(files[i]);
+                    const cleaned = parseFlexItineraryText(ret.data.text);
+                    extractedAddresses.push(...cleaned);
+                }
+
+                await worker.terminate();
+
+                // Eliminar duplicados y anexar al textarea existente
+                const currentLines = textarea.value.split('\n').map(l => l.trim()).filter(Boolean);
+                const combined = [...new Set([...currentLines, ...extractedAddresses])];
+                textarea.value = combined.join('\n');
+
+                showToast(`Se extrajeron ${extractedAddresses.length} direcciones nuevas.`, 'success');
+            } catch (error) {
+                console.error("Error OCR:", error);
+                showToast("No se pudo procesar la imagen. Intenta con una captura más nítida.", 'error');
+            } finally {
+                progressBox.classList.add('hidden');
+                event.target.value = ''; // Reset input
+            }
+        }
+
+        /**
+         * Limpia el ruido típico de las capturas de pantalla de Amazon Flex
+         * (batería, hora, números de parada viejos, botones "Entregar", horarios de ventana)
+         */
+        function parseFlexItineraryText(rawText) {
+            const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+            const validAddresses = [];
+
+            // Palabras clave comunes en direcciones de México
+            const streetKeywords = /\b(calle|av|avenida|blvd|boulevard|priv|privada|cerrada|cda|andador|prolongacion|prol|calzada|calz|carretera|carr|camino|paseo|circuito|cto|col|colonia|fracc|fraccionamiento|mz|manzana|lt|lote|km|num|no\.|#)\b/i;
+            
+            // Ruido de interfaz de Amazon Flex a ignorar
+            const noisePatterns = [
+                /^(itinerario|lista|mapa|resumen|parada|entrega|recogida|paquete|paquetes|programado|hoy|mañana)/i,
+                /^\d{1,2}:\d{2}\s*(am|pm|hrs)?/i, // Horarios tipo 10:30 AM o 14:00 - 18:00
+                /^(lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)/i,
+                /^[0-9\s\-\.\(\)]+$/, // Solo números sueltos
+                /(entregar antes de|intento de entrega|problema con|escanear)/i
+            ];
+
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+
+                // Limpiar prefijos de número de parada viejo (ej. "12. Calle Hidalgo..." o "#4 Av. Morelos")
+                line = line.replace(/^[\#\(\[]?\d{1,3}[\)\]\.\-\:]\s*/, '').trim();
+
+                // Ignorar si coincide con ruido
+                if (noisePatterns.some(regex => regex.test(line))) continue;
+
+                // Si contiene palabra clave de calle o número postal/exterior
+                if (streetKeywords.test(line) || /\b\d{5}\b/.test(line)) {
+                    // Verificar si la siguiente línea es la colonia o municipio para unirlas
+                    if (i + 1 < lines.length) {
+                        const nextLine = lines[i + 1].trim();
+                        if (!noisePatterns.some(r => r.test(nextLine)) && !streetKeywords.test(nextLine) && nextLine.length > 3 && nextLine.length < 45) {
+                            line = `${line}, ${nextLine}`;
+                            i++; // Saltar la línea ya unida
+                        }
+                    }
+                    // Limpiar caracteres extraños del OCR
+                    line = line.replace(/[|_=~*]/g, '').replace(/\s{2,}/g, ' ').trim();
+                    if (line.length >= 8) {
+                        validAddresses.push(line);
+                    }
+                }
+            }
+
+            return validAddresses;
+        }
+
+        // ============================================================================
+        // 2. DATOS DE EJEMPLO (CUERNAVACA / MORELOS) Y GPS ACTUAL
+        // ============================================================================
+        function loadDemoData() {
+            document.getElementById('startLocation').value = "Av. Plan de Ayala 501, Jacarandas, Cuernavaca, Morelos";
+            document.getElementById('endLocation').value = "Av. Domingo Diez 1589, El Empleado, Cuernavaca, Morelos";
+            
+            const demoStops = [
+                "Calle Hidalgo 204, Centro, Cuernavaca, Morelos",
+                "Av. Río Mayo 1205, Vista Hermosa, Cuernavaca, Morelos",
+                "Calle Nueva Inglaterra 114, Lomas de Cortés, Cuernavaca, Morelos",
+                "Av. Teopanzolco 408, Reforma, Cuernavaca, Morelos",
+                "Calle Gutenberg 105, Centro, Cuernavaca, Morelos",
+                "Av. Emiliano Zapata 803, Bellavista, Cuernavaca, Morelos",
+                "Calle San Juan 212, Chapultepec, Cuernavaca, Morelos",
+                "Av. Vicente Guerrero 110, Lomas de la Selva, Cuernavaca, Morelos"
+            ];
+            
+            document.getElementById('addressList').value = demoStops.join('\n');
+            gpsStartCoords = null;
+            document.getElementById('gpsCoordsLabel').classList.add('hidden');
+            showToast("Ruta de prueba en Cuernavaca cargada.", 'info');
+        }
+
+        function useCurrentGPS() {
+            if (!navigator.geolocation) {
+                showToast("Tu navegador no soporta geolocalización GPS.", 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btnGPS');
+            const origHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    gpsStartCoords = {
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        address: "Mi Ubicación GPS Actual"
+                    };
+                    document.getElementById('startLocation').value = "📍 Ubicación GPS Actual";
+                    const label = document.getElementById('gpsCoordsLabel');
+                    label.textContent = `Coordenadas fijadas: ${gpsStartCoords.lat.toFixed(5)}, ${gpsStartCoords.lon.toFixed(5)}`;
+                    label.classList.remove('hidden');
+                    
+                    map.setView([gpsStartCoords.lat, gpsStartCoords.lon], 14);
+                    showToast("Ubicación GPS obtenida correctamente.", 'success');
+                    btn.innerHTML = origHTML;
+                    btn.disabled = false;
+                },
+                (err) => {
+                    showToast("No se pudo obtener el GPS. Revisa los permisos de ubicación.", 'error');
+                    btn.innerHTML = origHTML;
+                    btn.disabled = false;
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+
+        // ============================================================================
+        // 3. GEOCODIFICACIÓN GRATUITA CON NOMINATIM (OPENSTREETMAP)
+        // ============================================================================
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        async function geocodeAddressNominatim(query) {
+            // Limpiar un poco la dirección para ayudar a Nominatim (ej. quitar "Int 4", "Depto B")
+            const cleanQuery = query
+                .replace(/\b(int|interior|depto|departamento|local|piso|edif|edificio)\s*[\w\-]+/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanQuery)}&countrycodes=mx&limit=1`;
+            
+            const response = await fetch(url, {
+                headers: {
+                    'Accept-Language': 'es-MX,es;q=0.9'
+                }
+            });
+
+            if (!response.ok) throw new Error("Error de red con Nominatim");
+            const data = await response.json();
+
+            if (data && data.length > 0) {
+                return {
+                    lat: parseFloat(data[0].lat),
+                    lon: parseFloat(data[0].lon),
+                    displayName: data[0].display_name
+                };
+            }
+            return null;
+        }
+
+        // ============================================================================
+        // 4. PROCESO PRINCIPAL: GEOCODIFICAR + OPTIMIZAR + RENDERIZAR
+        // ============================================================================
+        async function startOptimizationProcess() {
+            const rawText = document.getElementById('addressList').value;
+            const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 3);
+
+            if (lines.length < 2) {
+                showToast("Ingresa al menos 2 direcciones para optimizar la ruta.", 'warning');
+                return;
+            }
+
+            const btnOptimize = document.getElementById('btnOptimize');
+            const geoBox = document.getElementById('geoProgressBox');
+            const geoText = document.getElementById('geoStatusText');
+            const geoCounter = document.getElementById('geoCounter');
+            const geoBar = document.getElementById('geoBar');
+            const failedBox = document.getElementById('failedAddressesBox');
+
+            btnOptimize.disabled = true;
+            btnOptimize.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> PROCESANDO RUTA...';
+            geoBox.classList.remove('hidden');
+            failedBox.classList.add('hidden');
+
+            const startInput = document.getElementById('startLocation').value.trim();
+            const endInput = document.getElementById('endLocation').value.trim();
+
+            const totalSteps = lines.length + (startInput && !gpsStartCoords ? 1 : 0) + (endInput ? 1 : 0);
+            let currentStep = 0;
+
+            const updateProgress = (msg) => {
+                currentStep++;
+                const pct = Math.min(100, Math.round((currentStep / totalSteps) * 100));
+                geoText.textContent = msg;
+                geoCounter.textContent = `${currentStep} / ${totalSteps}`;
+                geoBar.style.width = `${pct}%`;
+            };
+
+            try {
+                // 1. Resolver Punto de Inicio
+                startNode = null;
+                if (startInput) {
+                    if (gpsStartCoords && startInput.includes("GPS")) {
+                        startNode = { ...gpsStartCoords, isStart: true };
+                    } else {
+                        updateProgress("Ubicando punto de partida...");
+                        const res = await geocodeAddressNominatim(startInput);
+                        await sleep(1050); // Respetar límite de 1 req/seg de Nominatim
+                        if (res) {
+                            startNode = { address: startInput, lat: res.lat, lon: res.lon, isStart: true };
+                        } else {
+                            showToast("No se encontró el punto de partida, se usará la primera parada.", 'warning');
+                        }
+                    }
+                }
+
+                // 2. Resolver Destino Final
+                endNode = null;
+                if (endInput) {
+                    updateProgress("Ubicando destino final...");
+                    const res = await geocodeAddressNominatim(endInput);
+                    await sleep(1050);
+                    if (res) {
+                        endNode = { address: endInput, lat: res.lat, lon: res.lon, isEnd: true };
+                    } else {
+                        showToast("No se encontró el destino final, se calculará ruta abierta.", 'warning');
+                    }
+                }
+
+                // 3. Geocodificar todas las paradas
+                const validStops = [];
+                const failedStops = [];
+
+                for (let i = 0; i < lines.length; i++) {
+                    const addr = lines[i];
+                    updateProgress(`Ubicando parada ${i + 1} de ${lines.length}...`);
+                    
+                    try {
+                        const coords = await geocodeAddressNominatim(addr);
+                        if (coords) {
+                            validStops.push({
+                                id: 'stop_' + i + '_' + Date.now(),
+                                address: addr,
+                                lat: coords.lat,
+                                lon: coords.lon,
+                                delivered: false
+                            });
+                        } else {
+                            failedStops.push(addr);
+                        }
+                    } catch (e) {
+                        failedStops.push(addr);
+                    }
+
+                    // Pausa obligatoria de cortesía para la API gratuita Nominatim
+                    if (i < lines.length - 1) await sleep(1050);
+                }
+
+                // Mostrar direcciones fallidas si existen
+                if (failedStops.length > 0) {
+                    renderFailedAddresses(failedStops);
+                }
+
+                if (validStops.length < 2) {
+                    showToast("Se necesitan al menos 2 direcciones válidas ubicadas en el mapa.", 'error');
+                    return;
+                }
+
+                // 4. Ejecutar Algoritmo de Optimización (Vecino Más Cercano + 2-Opt)
+                optimizedStops = solveTSP(validStops, startNode, endNode);
+
+                // 5. Renderizar resultados en Mapa y Lista
+                renderMap();
+                renderStopsList();
+                saveState();
+
+                showToast(`¡Ruta optimizada con ${optimizedStops.length} paradas!`, 'success');
+                switchTab('route');
+
+            } catch (err) {
+                console.error(err);
+                showToast("Ocurrió un error al procesar las direcciones.", 'error');
+            } finally {
+                btnOptimize.disabled = false;
+                btnOptimize.innerHTML = '<i class="fa-solid fa-bolt"></i> OPTIMIZAR RUTA AHORA';
+                geoBox.classList.add('hidden');
+            }
+        }
+
+        // ============================================================================
+        // 5. ALGORITMO DE OPTIMIZACIÓN (VECINO MÁS CERCANO + MEJORA 2-OPT)
+        // ============================================================================
+        
+        // Distancia Haversine en kilómetros entre dos coordenadas
+        function getDistanceKm(p1, p2) {
+            const R = 6371;
+            const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+            const dLon = (p2.lon - p1.lon) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        function calculateTotalRouteDistance(route, start, end) {
+            if (route.length === 0) return 0;
+            let total = 0;
+            if (start) total += getDistanceKm(start, route[0]);
+            for (let i = 0; i < route.length - 1; i++) {
+                total += getDistanceKm(route[i], route[i + 1]);
+            }
+            if (end) total += getDistanceKm(route[route.length - 1], end);
+            return total;
+        }
+
+        /**
+         * Resuelve el orden óptimo:
+         * Paso 1: Heurística del Vecino Más Cercano partiendo desde startNode (o parada 0)
+         * Paso 2: Refinamiento local 2-Opt para descruzar caminos y minimizar distancia total
+         */
+        function solveTSP(stops, start, end) {
+            let unvisited = [...stops];
+            let route = [];
+
+            // Seleccionar punto inicial de referencia
+            let currentPoint = start ? start : unvisited.shift();
+            if (!start) route.push(currentPoint);
+
+            // Paso 1: Vecino Más Cercano
+            while (unvisited.length > 0) {
+                let nearestIdx = 0;
+                let minDist = Infinity;
+
+                for (let i = 0; i < unvisited.length; i++) {
+                    // Si hay destino final y quedan pocas paradas, penalizamos ligeramente alejarse del destino final
+                    let d = getDistanceKm(currentPoint, unvisited[i]);
+                    if (end && unvisited.length <= 3) {
+                        d += getDistanceKm(unvisited[i], end) * 0.25;
+                    }
+                    if (d < minDist) {
+                        minDist = d;
+                        nearestIdx = i;
+                    }
+                }
+
+                currentPoint = unvisited.splice(nearestIdx, 1)[0];
+                route.push(currentPoint);
+            }
+
+            // Paso 2: Optimización 2-Opt (elimina cruces en la ruta)
+            let improved = true;
+            let bestDistance = calculateTotalRouteDistance(route, start, end);
+            const startIndex = start ? 0 : 1; // Si no hay nodo de inicio externo, fijamos la primera parada
+
+            while (improved) {
+                improved = false;
+                for (let i = startIndex; i < route.length - 1; i++) {
+                    for (let k = i + 1; k < route.length; k++) {
+                        const newRoute = twoOptSwap(route, i, k);
+                        const newDist = calculateTotalRouteDistance(newRoute, start, end);
+                        if (newDist < bestDistance - 0.001) {
+                            route = newRoute;
+                            bestDistance = newDist;
+                            improved = true;
+                        }
+                    }
+                }
+            }
+
+            return route;
+        }
+
+        function twoOptSwap(route, i, k) {
+            const head = route.slice(0, i);
+            const middle = route.slice(i, k + 1).reverse();
+            const tail = route.slice(k + 1);
+            return [...head, ...middle, ...tail];
+        }
+
+        // ============================================================================
+        // 6. MANEJO DE DIRECCIONES NO ENCONTRADAS
+        // ============================================================================
+        function renderFailedAddresses(failedList) {
+            const box = document.getElementById('failedAddressesBox');
+            const container = document.getElementById('failedListContainer');
+            box.classList.remove('hidden');
+            container.innerHTML = '';
+
+            failedList.forEach((addr, idx) => {
+                const row = document.createElement('div');
+                row.className = 'flex gap-2 items-center';
+                row.innerHTML = `
+                    <input type="text" id="retryInput_${idx}" value="${addr}" 
+                        class="flex-1 bg-white dark:bg-slate-900 border border-rose-400/50 rounded-lg px-2.5 py-1.5 text-xs">
+                    <button onclick="retrySingleAddress(${idx}, this)" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold shrink-0">
+                        Agregar
+                    </button>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        async function retrySingleAddress(idx, btn) {
+            const input = document.getElementById(`retryInput_${idx}`);
+            const newAddr = input.value.trim();
+            if (!newAddr) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            try {
+                const coords = await geocodeAddressNominatim(newAddr);
+                if (coords) {
+                    const newStop = {
+                        id: 'stop_retry_' + Date.now(),
+                        address: newAddr,
+                        lat: coords.lat,
+                        lon: coords.lon,
+                        delivered: false
+                    };
+                    // Añadir y re-optimizar instantáneamente sin volver a geocodificar todo
+                    const updatedStops = [...optimizedStops, newStop];
+                    optimizedStops = solveTSP(updatedStops, startNode, endNode);
+                    
+                    renderMap();
+                    renderStopsList();
+                    saveState();
+                    
+                    input.parentElement.remove();
+                    if (document.getElementById('failedListContainer').children.length === 0) {
+                        document.getElementById('failedAddressesBox').classList.add('hidden');
+                    }
+                    showToast("Dirección agregada y ruta reordenada.", 'success');
+                } else {
+                    showToast("Sigue sin encontrarse. Prueba agregando la ciudad o estado.", 'warning');
+                    btn.disabled = false;
+                    btn.textContent = 'Agregar';
+                }
+            } catch (e) {
+                btn.disabled = false;
+                btn.textContent = 'Agregar';
+            }
+        }
+
+        // ============================================================================
+        // 7. RENDERIZADO DEL MAPA Y LISTA DE PARADAS (MODO COPILOTO)
+        // ============================================================================
+        function createCustomMarker(lat, lon, label, typeClass, popupHtml) {
+            const icon = L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div class="marker-pin ${typeClass}"><span class="marker-number">${label}</span></div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 32],
+                popupAnchor: [0, -32]
+            });
+
+            return L.marker([lat, lon], { icon }).bindPopup(popupHtml);
+        }
+
+        function renderMap() {
+            markersLayer.clearLayers();
+            routeLayer.clearLayers();
+
+            const latLngs = [];
+            const bounds = L.latLngBounds();
+
+            // 1. Marcador de Inicio
+            if (startNode) {
+                const m = createCustomMarker(
+                    startNode.lat, startNode.lon, 
+                    '<i class="fa-solid fa-warehouse text-[10px]"></i>', 
+                    'start-pin',
+                    `<strong>Punto de Partida</strong><br><span class="text-xs">${startNode.address}</span>`
+                );
+                markersLayer.addLayer(m);
+                latLngs.push([startNode.lat, startNode.lon]);
+                bounds.extend([startNode.lat, startNode.lon]);
+            }
+
+            // 2. Marcadores de Paradas Numeradas del 1 al N
+            optimizedStops.forEach((stop, index) => {
+                const num = index + 1;
+                const pinClass = stop.delivered ? 'delivered-pin' : '';
+                const m = createCustomMarker(
+                    stop.lat, stop.lon,
+                    num,
+                    pinClass,
+                    `<div class="font-sans">
+                        <span class="bg-amber-500 text-slate-900 font-extrabold px-1.5 py-0.5 rounded text-xs">Parada #${num}</span>
+                        <p class="font-semibold text-xs mt-1 mb-2">${stop.address}</p>
+                        <a href="https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lon}" target="_blank" class="text-blue-600 font-bold text-xs underline">Abrir en Google Maps</a>
+                    </div>`
+                );
+                markersLayer.addLayer(m);
+                latLngs.push([stop.lat, stop.lon]);
+                bounds.extend([stop.lat, stop.lon]);
+            });
+
+            // 3. Marcador de Destino Final
+            if (endNode) {
+                const m = createCustomMarker(
+                    endNode.lat, endNode.lon,
+                    '<i class="fa-solid fa-flag-checkered text-[10px]"></i>',
+                    'end-pin',
+                    `<strong>Destino Final</strong><br><span class="text-xs">${endNode.address}</span>`
+                );
+                markersLayer.addLayer(m);
+                latLngs.push([endNode.lat, endNode.lon]);
+                bounds.extend([endNode.lat, endNode.lon]);
+            }
+
+            // 4. Dibujar línea conectando toda la ruta
+            if (latLngs.length > 1) {
+                const polyline = L.polyline(latLngs, {
+                    color: '#FF9900',
+                    weight: 4,
+                    opacity: 0.85,
+                    dashArray: '8, 8'
+                });
+                routeLayer.addLayer(polyline);
+                map.fitBounds(bounds, { padding: [40, 40] });
+            }
+        }
+
+        function renderStopsList() {
+            const container = document.getElementById('optimizedListContainer');
+            const badge = document.getElementById('badgeCount');
+            
+            // Actualizar estadísticas
+            const totalStops = optimizedStops.length;
+            const deliveredCount = optimizedStops.filter(s => s.delivered).length;
+            const totalKm = calculateTotalRouteDistance(optimizedStops, startNode, endNode);
+
+            document.getElementById('statStops').textContent = totalStops;
+            document.getElementById('statDistance').textContent = `${totalKm.toFixed(1)} km`;
+            document.getElementById('statCompleted').textContent = `${deliveredCount}/${totalStops}`;
+            
+            badge.textContent = totalStops;
+            badge.classList.toggle('hidden', totalStops === 0);
+
+            if (totalStops === 0) {
+                container.innerHTML = `<div class="text-center py-10 text-slate-400 text-sm">No hay paradas calculadas aún.</div>`;
+                return;
+            }
+
+            container.innerHTML = '';
+
+            // Tarjeta de Inicio (informativa)
+            if (startNode) {
+                container.innerHTML += `
+                    <div class="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                            <i class="fa-solid fa-play"></i>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-500">Punto de Partida</span>
+                            <p class="text-xs font-semibold truncate">${startNode.address}</p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Tarjetas de cada parada numerada
+            optimizedStops.forEach((stop, index) => {
+                const stopNum = index + 1;
+                const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lon}`;
+                const wazeUrl = `https://waze.com/ul?ll=${stop.lat},${stop.lon}&navigate=yes`;
+
+                const card = document.createElement('div');
+                card.className = `bg-white dark:bg-flex-card border ${stop.delivered ? 'border-slate-200 dark:border-slate-800 opacity-60' : 'border-slate-300 dark:border-flex-border'} rounded-2xl p-3.5 shadow-sm transition-all`;
+
+                card.innerHTML = `
+                    <div class="flex items-start gap-3">
+                        <!-- Número de Orden para etiquetar paquete -->
+                        <div onclick="focusStopOnMap(${stop.lat}, ${stop.lon})" class="cursor-pointer w-11 h-11 rounded-xl ${stop.delivered ? 'bg-slate-600 text-slate-300' : 'bg-flex-orange text-slate-950'} flex flex-col items-center justify-center shrink-0 shadow-sm">
+                            <span class="text-[9px] font-bold uppercase leading-none">Paq</span>
+                            <span class="text-lg font-extrabold leading-tight">#${stopNum}</span>
+                        </div>
+
+                        <!-- Dirección y Estado -->
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start justify-between gap-2">
+                                <p onclick="focusStopOnMap(${stop.lat}, ${stop.lon})" class="cursor-pointer text-sm font-bold leading-snug ${stop.delivered ? 'line-through text-slate-400' : ''}">
+                                    ${stop.address}
+                                </p>
+                                
+                                <!-- Checkbox Entregado -->
+                                <label class="cursor-pointer flex items-center gap-1.5 shrink-0 select-none bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                                    <input type="checkbox" ${stop.delivered ? 'checked' : ''} onchange="toggleDelivered('${stop.id}')" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+                                    <span class="text-xs font-bold ${stop.delivered ? 'text-emerald-500' : 'text-slate-500 dark:text-slate-400'}">Listo</span>
+                                </label>
+                            </div>
+
+                            <!-- Botones de Navegación Externa -->
+                            <div class="grid grid-cols-2 gap-2 mt-3">
+                                <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" 
+                                    class="py-2 px-3 bg-blue-600/15 hover:bg-blue-600/25 text-blue-600 dark:text-blue-400 border border-blue-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition">
+                                    <i class="fa-solid fa-diamond-turn-right"></i> Google Maps
+                                </a>
+                                <a href="${wazeUrl}" target="_blank" rel="noopener noreferrer" 
+                                    class="py-2 px-3 bg-sky-500/15 hover:bg-sky-500/25 text-sky-600 dark:text-sky-400 border border-sky-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition">
+                                    <i class="fa-brands fa-waze text-sm"></i> Waze
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            // Tarjeta de Destino Final
+            if (endNode) {
+                container.innerHTML += `
+                    <div class="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                                <i class="fa-solid fa-flag-checkered"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-rose-500">Destino Final</span>
+                                <p class="text-xs font-semibold truncate">${endNode.address}</p>
+                            </div>
+                        </div>
+                        <a href="https://www.google.com/maps/dir/?api=1&destination=${endNode.lat},${endNode.lon}" target="_blank" class="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-xs font-bold shrink-0">
+                            Ir
+                        </a>
+                    </div>
+                `;
+            }
+        }
+
+        function toggleDelivered(stopId) {
+            const stop = optimizedStops.find(s => s.id === stopId);
+            if (stop) {
+                stop.delivered = !stop.delivered;
+                renderStopsList();
+                renderMap();
+                saveState();
+            }
+        }
+
+        function focusStopOnMap(lat, lon) {
+            map.setView([lat, lon], 16);
+            if (window.innerWidth < 1024) {
+                document.getElementById('map').scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        // ============================================================================
+        // PERSISTENCIA LOCAL (PARA NO PERDER LA RUTA SI SE RECARGA EL NAVEGADOR)
+        // ============================================================================
+        function saveState() {
+            try {
+                const state = {
+                    addressList: document.getElementById('addressList').value,
+                    startLocation: document.getElementById('startLocation').value,
+                    endLocation: document.getElementById('endLocation').value,
+                    optimizedStops,
+                    startNode,
+                    endNode
+                };
+                localStorage.setItem('flexroute_state_v1', JSON.stringify(state));
+            } catch (e) {
+                console.warn("No se pudo guardar estado local", e);
+            }
+        }
+
+        function loadSavedState() {
+            try {
+                const saved = localStorage.getItem('flexroute_state_v1');
+                if (!saved) return;
+                const state = JSON.parse(saved);
+                if (state.addressList) document.getElementById('addressList').value = state.addressList;
+                if (state.startLocation) document.getElementById('startLocation').value = state.startLocation;
+                if (state.endLocation) document.getElementById('endLocation').value = state.endLocation;
+                
+                if (state.optimizedStops && state.optimizedStops.length > 0) {
+                    optimizedStops = state.optimizedStops;
+                    startNode = state.startNode;
+                    endNode = state.endNode;
+                    renderMap();
+                    renderStopsList();
+                }
+            } catch (e) {
+                console.warn("Error cargando estado guardado", e);
+            }
+        }
+
+        function resetAll() {
+            localStorage.removeItem('flexroute_state_v1');
+            document.getElementById('addressList').value = '';
+            document.getElementById('startLocation').value = '';
+            document.getElementById('endLocation').value = '';
+            document.getElementById('failedAddressesBox').classList.add('hidden');
+            document.getElementById('gpsCoordsLabel').classList.add('hidden');
+            gpsStartCoords = null;
+            optimizedStops = [];
+            startNode = null;
+            endNode = null;
+            
+            markersLayer.clearLayers();
+            routeLayer.clearLayers();
+            renderStopsList();
+            switchTab('plan');
+            showToast("Todos los datos han sido limpiados.", 'info');
+        }
+    </script>
+</body>
+</html>
